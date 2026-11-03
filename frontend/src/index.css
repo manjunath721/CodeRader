@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+}
+
+/* Knowledge Cosmos: subtle alert pulse for high/critical-risk modules. */
+@keyframes cosmos-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 10px currentColor);
+  }
+  50% {
+    filter: drop-shadow(0 0 26px currentColor);
+  }
+}
+
+.cosmos-alert {
+  animation: cosmos-pulse 2.4s ease-in-out infinite;
+}

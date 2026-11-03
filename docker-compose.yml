@@ -1,0 +1,61 @@
+name: coderadar
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-coderesilience}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coderesilience}
+      POSTGRES_DB: ${POSTGRES_DB:-coderesilience}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-coderesilience}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: coderadar-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-coderesilience}:${POSTGRES_PASSWORD:-coderesilience}@postgres:5432/${POSTGRES_DB:-coderesilience}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    image: coderadar-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - VITE_PROXY_TARGET=http://backend:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+    # Pre-rename volume, kept so existing data survives the
+    # coderesilience -> coderadar project rename. External so it is never
+    # dropped by `docker compose down -v`.
+    external: true
+    name: coderesilience_postgres_data
