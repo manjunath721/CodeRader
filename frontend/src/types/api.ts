@@ -3,6 +3,8 @@ export interface Project {
   name: string;
   description: string | null;
   is_demo: boolean;
+  risk_config?: Record<string, unknown>;
+  rescan_interval_hours?: number;
   created_at: string;
 }
 
@@ -27,6 +29,8 @@ export interface AnalysisRun {
   stage_status: Record<string, string>;
   progress: { ingestion?: Record<string, IngestionProgress> };
   scan_mode: "quick" | "full";
+  rescan_type?: string;
+  commit_sha?: string | null;
   cancel_requested: boolean;
   started_at: string | null;
   completed_at: string | null;
@@ -62,7 +66,10 @@ export interface DashboardData {
 export interface DeveloperSummary {
   id: string;
   display_name: string;
-  primary_email: string | null;
+  primary_email?: string | null;
+  modules_count?: number;
+  critical_ownership_count?: number;
+  single_owner_modules_count?: number;
 }
 
 export interface DeveloperDetail {
@@ -72,7 +79,7 @@ export interface DeveloperDetail {
   modules: { module_id: string; module_name: string; score: number }[];
   critical_ownership_count: number;
   single_owner_modules_count: number;
-  dependency_risk: string;
+  dependency_risk: "LOW" | "MODERATE" | "HIGH";
 }
 
 export interface ModuleDetail {
@@ -81,7 +88,11 @@ export interface ModuleDetail {
   path_prefix: string;
   risk_score: number | null;
   risk_level: string | null;
-  risk_factors: { values: Record<string, number>; weights: Record<string, number>; raw: Record<string, number> } | null;
+  risk_factors: {
+    values: Record<string, number>;
+    weights: Record<string, number>;
+    raw: Record<string, number>;
+  } | null;
   bus_factor: number | null;
   concentration_pct: number | null;
   documentation_score: number;
@@ -100,18 +111,30 @@ export interface RiskEntry {
   score: number;
   level: string;
   factors: ModuleDetail["risk_factors"];
-  criticality_score: number;
-  is_critical_knowledge_area: boolean;
   bus_factor: number;
   concentration_pct: number;
+  criticality_score: number;
+  is_critical_knowledge_area: boolean;
 }
 
 export interface Recommendation {
   id: string;
-  severity: "CRITICAL" | "HIGH" | "MODERATE";
+  severity: "CRITICAL" | "HIGH" | "MODERATE" | "LOW";
   title: string;
   description: string;
   module_id: string | null;
+  related_developer_id?: string | null;
+  rule_type?: string;
+  suggested_action?: string;
+  triggering_metric?: string;
+}
+
+export interface KnowledgeTransferPlan {
+  module: string;
+  topics: string[];
+  recommended_backup_developer_id: string | null;
+  priority: string;
+  suggested_format: string;
 }
 
 export interface GraphNode {
@@ -139,12 +162,14 @@ export interface LibraryEntry {
   file_count: number;
   used_by_modules: string[];
 }
+
 export interface GraphEdge {
   source: string;
   target: string;
   relation: string;
   weight: number;
 }
+
 export interface KnowledgeGraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -165,7 +190,66 @@ export interface SimulationResult {
   risk_propagation: Record<string, Record<string, number>>;
 }
 
-export interface AIQueryResponse {
-  answer: string;
-  context: Record<string, unknown>;
+export interface User {
+  id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Token {
+  access_token: string;
+  token_type: string;
+  user: User;
+}
+
+export interface ProjectMember {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: "owner" | "analyst" | "viewer";
+  email?: string;
+  full_name?: string;
+  created_at: string;
+}
+
+export interface AuditLog {
+  id: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  details: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface ModuleRiskDelta {
+  module_id: string;
+  name: string;
+  old_score: number | null;
+  new_score: number | null;
+  delta: number;
+  old_level: string | null;
+  new_level: string | null;
+}
+
+export interface AnalysisComparison {
+  base_run_id: string;
+  target_run_id: string;
+  base_commit_sha: string | null;
+  target_commit_sha: string | null;
+  resilience_before: number | null;
+  resilience_after: number | null;
+  resilience_delta: number;
+  label_before: string | null;
+  label_after: string | null;
+  modules_added: string[];
+  modules_removed: string[];
+  risk_changes: ModuleRiskDelta[];
+  newly_introduced_risks: string[];
+  resolved_risks: string[];
 }

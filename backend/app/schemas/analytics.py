@@ -77,7 +77,22 @@ class RecommendationOut(BaseModel):
     severity: str
     title: str
     description: str
-    module_id: uuid.UUID | None
+    module_id: uuid.UUID | None = None
+    related_developer_id: uuid.UUID | None = None
+
+
+class KnowledgeTransferRequest(BaseModel):
+    module_name: str
+    backup_developer_id: str | None = None
+    priority: str = "HIGH"
+
+
+class KnowledgeTransferPlanOut(BaseModel):
+    module: str
+    topics: list[str]
+    recommended_backup_developer_id: str | None = None
+    priority: str
+    suggested_format: str
 
 
 class SimulationRequest(BaseModel):
@@ -96,13 +111,3 @@ class SimulationOut(BaseModel):
     affected_modules: list[dict]  # [{id, name}]
     backup_candidates: dict
     risk_propagation: dict
-
-
-class AIQueryRequest(BaseModel):
-    project_id: uuid.UUID
-    question: str
-
-
-class AIQueryResponse(BaseModel):
-    answer: str
-    context: dict

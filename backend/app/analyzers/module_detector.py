@@ -1,7 +1,7 @@
 """
 Module detection: infers modules from top-level source directories.
 
-Heuristic, documented as such (docs/analysis-methodology.md §2). A file
+Heuristic, documented as such (Documentation/ANALYSIS_METHODOLOGY.md §2). A file
 maps to at most one module by longest-matching path prefix.
 """
 from pathlib import PurePosixPath

@@ -103,22 +103,22 @@ def resolve_developers(raw_identities: list[RawIdentity]) -> list[ResolvedDevelo
                 d.suggested_merges = [i for other in devs if other is not d for i in other.raw_identities]
                 merged.append(d)
 
-    # No-email identities become their own developer, one per distinct normalized name,
-    # unless that name already matches a resolved developer's normalized_key.
-    key_index = {d.normalized_key: d for d in merged}
+    # No-email identities are grouped with one another by normalized name,
+    # but never attached to an email-backed developer based on name alone.
+    no_email_devs: dict[str, ResolvedDeveloper] = {}
     for ident in no_email:
         key = normalize_name(ident.name)
-        if key in key_index:
-            key_index[key].raw_identities.append(ident)
-        else:
-            dev = ResolvedDeveloper(
-                display_name=ident.name,
-                primary_email=None,
-                normalized_key=key,
-                raw_identities=[ident],
-                suggested_merges=[],
-            )
-            merged.append(dev)
-            key_index[key] = dev
+        if key in no_email_devs:
+            no_email_devs[key].raw_identities.append(ident)
+            continue
+        dev = ResolvedDeveloper(
+            display_name=ident.name,
+            primary_email=None,
+            normalized_key=key,
+            raw_identities=[ident],
+            suggested_merges=[],
+        )
+        merged.append(dev)
+        no_email_devs[key] = dev
 
     return merged

@@ -2,7 +2,7 @@
 Batched Git history extraction via the `git log --numstat` CLI, replacing
 per-commit GitPython `commit.stats.files` calls.
 
-MEASURED (see docs/perf-benchmarks.md): GitPython's `c.stats.files` shells out
+MEASURED (see Documentation/PERFORMANCE_BENCHMARKS.md): GitPython's `c.stats.files` shells out
 to `git diff` once per commit. At 1,200 commits that took 2.01s versus 0.14s
 for a single batched `git log --numstat` call — a 14.9x speedup, and the gap
 widens with history size because GitPython pays per-commit process/diff

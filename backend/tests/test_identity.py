@@ -22,6 +22,16 @@ def test_same_name_same_domain_auto_merges():
     assert len(resolved) == 1
 
 
+def test_no_email_identity_is_not_merged_with_same_name_email_identity():
+    idents = [RawIdentity("Sam Lee", "sam@example.com"), RawIdentity("Sam Lee", None)]
+
+    resolved = resolve_developers(idents)
+
+    assert len(resolved) == 2
+    assert {developer.primary_email for developer in resolved} == {"sam@example.com", None}
+    assert sorted(len(developer.raw_identities) for developer in resolved) == [1, 1]
+
+
 def test_developers_with_no_email_are_kept_distinct_by_name():
     idents = [RawIdentity("Alice", None), RawIdentity("Bob", None)]
     resolved = resolve_developers(idents)

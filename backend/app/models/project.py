@@ -35,6 +35,7 @@ class Project(Base, UUIDMixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     risk_config: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_RISK_CONFIG))
     is_demo: Mapped[bool] = mapped_column(default=False)
+    rescan_interval_hours: Mapped[int] = mapped_column(Integer, default=0)
 
     repositories: Mapped[list["Repository"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     developers: Mapped[list["Developer"]] = relationship(back_populates="project", cascade="all, delete-orphan")

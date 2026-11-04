@@ -1,5 +1,5 @@
 """
-Knowledge scoring engine — implements docs/analysis-methodology.md §3.
+Knowledge scoring engine — implements Documentation/ANALYSIS_METHODOLOGY.md §3.
 
 knowledge_score(d, m) = 100 * normalize(
     w1*contribution + w2*recency + w3*module_experience + w4*review + w5*issue

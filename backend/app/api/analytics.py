@@ -7,10 +7,13 @@ from app.core.db import get_db
 from app.analyzers.module_dependency_resolver import extract_external_libraries
 from app.graph.knowledge_graph import build_knowledge_graph, serialize_for_frontend
 from app.models.analysis import KnowledgeScore, ResilienceScore, RiskScore
+from app.models.auth import User
 from app.models.code import File, Module, ModuleDependency
 from app.models.developer import Developer
 from app.models.project import Repository
-from app.schemas.analytics import DashboardOut, RecommendationOut
+from app.recommendations.engine import generate_knowledge_transfer_plan
+from app.schemas.analytics import DashboardOut, KnowledgeTransferPlanOut, KnowledgeTransferRequest, RecommendationOut
+from app.services.auth_service import check_project_membership, get_optional_current_user
 from app.services.query_service import (
     build_dashboard,
     build_recommendations,
@@ -171,3 +174,19 @@ def get_resilience(project_id: uuid.UUID, db: Session = Depends(get_db)):
 def get_recommendations(project_id: uuid.UUID, db: Session = Depends(get_db)):
     project = get_project_or_404(db, project_id)
     return build_recommendations(db, project)
+
+
+@router.post("/projects/{project_id}/knowledge-transfer-plan", response_model=KnowledgeTransferPlanOut)
+def create_knowledge_transfer_plan(
+    project_id: uuid.UUID,
+    payload: KnowledgeTransferRequest,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_optional_current_user),
+):
+    project = get_project_or_404(db, project_id)
+    check_project_membership(db, project.id, user, required_roles=["owner", "analyst", "viewer"])
+    return generate_knowledge_transfer_plan(
+        module_name=payload.module_name,
+        backup_developer_id=payload.backup_developer_id,
+        priority=payload.priority,
+    )

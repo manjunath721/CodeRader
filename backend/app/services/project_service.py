@@ -107,5 +107,7 @@ def delete_project(db: Session, project: Project) -> None:
         db.query(AnalysisRun).filter(AnalysisRun.project_id == project.id).delete(
             synchronize_session=False
         )
+    from app.models.auth import ProjectMember
+    db.query(ProjectMember).filter(ProjectMember.project_id == project.id).delete(synchronize_session=False)
     db.query(Project).filter(Project.id == project.id).delete(synchronize_session=False)
     db.commit()

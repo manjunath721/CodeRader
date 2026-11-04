@@ -4,6 +4,7 @@ autogenerate and by tests that call `Base.metadata.create_all`) always sees
 the full schema regardless of which module happens to be imported first.
 """
 from app.models.project import Project, Repository  # noqa: F401
+from app.models.auth import User, ProjectMember, AuditLog  # noqa: F401
 from app.models.developer import Developer, DeveloperAlias  # noqa: F401
 from app.models.code import (  # noqa: F401
     Module,

@@ -41,3 +41,30 @@ def propagate_risk(g: nx.DiGraph, source_module_id: str, decay: float = 0.6) -> 
         return {source_module_id: 1.0}
     lengths = nx.single_source_shortest_path_length(g, source_module_id)
     return {node: round(decay ** dist, 4) for node, dist in lengths.items()}
+
+
+def find_circular_dependencies(g: nx.DiGraph) -> list[list[str]]:
+    """Detect circular dependency loops using NetworkX simple cycles."""
+    try:
+        cycles = list(nx.simple_cycles(g))
+        return [c for c in cycles if len(c) > 1]
+    except Exception:
+        return []
+
+
+def find_highly_coupled_modules(g: nx.DiGraph, threshold: int = 4) -> list[dict]:
+    """Identify architectural hubs with excessive dependencies."""
+    results = []
+    for node in g.nodes:
+        in_deg = g.in_degree(node)
+        out_deg = g.out_degree(node)
+        total_deg = in_deg + out_deg
+        if total_deg >= threshold:
+            results.append({
+                "module_id": node,
+                "in_degree": in_deg,
+                "out_degree": out_deg,
+                "total_degree": total_deg,
+            })
+    results.sort(key=lambda x: x["total_degree"], reverse=True)
+    return results

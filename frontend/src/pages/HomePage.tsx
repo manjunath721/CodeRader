@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/services/api";
 import type { Project } from "@/types/api";
-import { Plus, FolderGit2, Sparkles, FlaskConical, Trash2 } from "lucide-react";
+import { Plus, FolderGit2, Sparkles, FlaskConical, Trash2, LogIn, LogOut, User } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { useAuth } from "@/context/AuthContext";
 
 export default function HomePage() {
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -13,6 +14,7 @@ export default function HomePage() {
   const [provider, setProvider] = useState("git");
   const [creating, setCreating] = useState(false);
   const [loadingDemo, setLoadingDemo] = useState(false);
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   const load = () => {
@@ -53,7 +55,12 @@ export default function HomePage() {
   }
 
   async function handleDelete(p: Project) {
-    if (!window.confirm(`Delete project "${p.name}" and all of its analysis data? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Delete project "${p.name}" and all of its analysis data? This cannot be undone.`,
+      )
+    )
+      return;
     setError(null);
     try {
       await api.deleteProject(p.id);
@@ -68,21 +75,55 @@ export default function HomePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-12">
-      <div className="flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-semibold mb-1">CodeRadar</h1>
-        <ThemeToggle />
+      {/* Top Header */}
+      <div className="flex items-center justify-between gap-4 mb-2">
+        <h1 className="text-2xl font-semibold">CodeRadar</h1>
+        <div className="flex items-center gap-3">
+          {user ? (
+            <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+              <User size={14} />
+              <span className="font-medium">{user.full_name || user.email}</span>
+              <button
+                onClick={logout}
+                className="hover:text-risk-critical p-1 transition-colors"
+                title="Sign out"
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs">
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:text-white"
+              >
+                <LogIn size={13} /> Sign in
+              </Link>
+              <span className="text-slate-400">|</span>
+              <Link
+                to="/register"
+                className="text-slate-700 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:text-white"
+              >
+                Register
+              </Link>
+            </div>
+          )}
+          <ThemeToggle />
+        </div>
       </div>
-      <p className="text-slate-600 dark:text-slate-400 mb-8">
-        AI-Powered Software Team Knowledge &amp; Risk Analyzer. Create a project, attach a repository, and run
-        analysis to see real risk and resilience metrics.
+
+      <p className="text-slate-600 dark:text-slate-400 mb-8 text-sm">
+        Repository Intelligence &amp; Software Engineering Risk Analysis Platform.
+        Deterministic knowledge graphs, bus factor analysis, and explainable recommendations.
       </p>
 
+      {/* Demo Workspace Banner */}
       <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-5 mb-6 flex flex-wrap items-center gap-4">
         <div className="flex-1 min-w-[220px]">
-          <div className="text-sm font-medium text-slate-200 flex items-center gap-1.5">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-200 flex items-center gap-1.5">
             <Sparkles size={15} className="text-indigo-400" /> Try the demo workspace
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             10 developers, 8 modules, real dependency edges — analyzed end-to-end. Always available in one click.
           </p>
         </div>
@@ -101,7 +142,11 @@ export default function HomePage() {
         </div>
       )}
 
-      <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-5 mb-10 space-y-3 shadow-sm dark:border-slate-800 dark:bg-transparent dark:shadow-none">
+      {/* Create Project Form */}
+      <form
+        onSubmit={handleCreate}
+        className="rounded-xl border border-slate-200 bg-white p-5 mb-10 space-y-3 shadow-sm dark:border-slate-800 dark:bg-transparent dark:shadow-none"
+      >
         <div className="text-sm font-medium text-slate-700 dark:text-slate-300">New project</div>
         <input
           className="w-full rounded-lg bg-slate-100 border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 dark:bg-slate-900 dark:border-slate-800 dark:focus:border-slate-600 dark:focus:ring-0"
@@ -114,16 +159,16 @@ export default function HomePage() {
             className="flex-1 rounded-lg bg-slate-100 border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 dark:bg-slate-900 dark:border-slate-800 dark:focus:border-slate-600 dark:focus:ring-0"
             placeholder="Repository URL or local path"
             value={repoUrl}
-            onChange={(e) => setRepoUrl(e.target.value)} required
+            onChange={(e) => setRepoUrl(e.target.value)}
+            required
           />
           <select
             className="rounded-lg bg-slate-100 border border-slate-200 px-2 py-2 text-sm dark:bg-slate-900 dark:border-slate-800"
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
           >
-            {/* <option value="git">git</option> */}
             <option value="github">github</option>
-            {/* <option value="local">local</option> */}
+            <option value="git">git</option>
           </select>
         </div>
         <button
@@ -136,6 +181,7 @@ export default function HomePage() {
         {error && <div className="text-sm text-risk-critical">{error}</div>}
       </form>
 
+      {/* Projects List */}
       <div className="flex items-baseline justify-between mb-3">
         <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Your projects</div>
         <div className="text-[11px] text-slate-500">Hover a row and click the trash icon to delete a project</div>
@@ -150,7 +196,10 @@ export default function HomePage() {
             key={p.id}
             className="w-full flex items-center gap-3 rounded-lg border border-indigo-500/40 bg-indigo-500/5 px-4 py-3 hover:border-indigo-400 transition-colors"
           >
-            <button onClick={() => navigate(`/projects/${p.id}`)} className="flex flex-1 items-center gap-3 text-left">
+            <button
+              onClick={() => navigate(`/projects/${p.id}`)}
+              className="flex flex-1 items-center gap-3 text-left"
+            >
               <FlaskConical size={18} className="text-indigo-400 shrink-0" />
               <div className="flex-1">
                 <div className="text-sm font-medium">{p.name}</div>
@@ -175,7 +224,10 @@ export default function HomePage() {
             key={p.id}
             className="w-full flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm hover:border-slate-400 transition-colors dark:border-slate-800 dark:bg-transparent dark:shadow-none dark:hover:border-slate-600"
           >
-            <button onClick={() => navigate(`/projects/${p.id}`)} className="flex flex-1 items-center gap-3 text-left">
+            <button
+              onClick={() => navigate(`/projects/${p.id}`)}
+              className="flex flex-1 items-center gap-3 text-left"
+            >
               <FolderGit2 size={18} className="text-slate-500 shrink-0" />
               <div>
                 <div className="text-sm font-medium">{p.name}</div>

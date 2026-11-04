@@ -36,6 +36,7 @@ class File(Base, UUIDMixin, TimestampMixin):
     is_config: Mapped[bool] = mapped_column(Boolean, default=False)
     complexity: Mapped[float] = mapped_column(Float, default=0.0)
     doc_coverage_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    lines_of_code: Mapped[int] = mapped_column(Integer, default=0)
     # --- Analysis caching (perf work) ---
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     analyzer_version: Mapped[str | None] = mapped_column(String(20), nullable=True)

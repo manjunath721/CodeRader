@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-coderesilience}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-coderesilience} -d ${POSTGRES_DB:-coderesilience}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -33,6 +33,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./backend:/app
 
@@ -47,15 +52,11 @@ services:
     ports:
       - "5173:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     volumes:
       - ./frontend:/app
       - /app/node_modules
 
 volumes:
   postgres_data:
-    # Pre-rename volume, kept so existing data survives the
-    # coderesilience -> coderadar project rename. External so it is never
-    # dropped by `docker compose down -v`.
-    external: true
-    name: coderesilience_postgres_data

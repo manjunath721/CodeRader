@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.errors import CodeResilienceError
+from app.models.developer import Developer
 from app.models.simulation import Simulation, SimulationResult
 from app.schemas.analytics import SimulationOut, SimulationRequest
 from app.services.query_service import get_project_or_404
@@ -23,6 +24,16 @@ class SimulationNotFoundError(CodeResilienceError):
 def simulate_developer_unavailability(payload: SimulationRequest, db: Session = Depends(get_db)):
     project = get_project_or_404(db, payload.project_id)
     dev_ids = [payload.developer_id] if payload.developer_id else (payload.developer_ids or [])
+    if dev_ids:
+        valid_devs = {
+            d[0] for d in db.query(Developer.id).filter(Developer.project_id == project.id, Developer.id.in_(dev_ids)).all()
+        }
+        invalid = [d for d in dev_ids if d not in valid_devs]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Developer ID(s) {[str(i) for i in invalid]} do not belong to project {project.id}."
+            )
     return run_simulation(db, project, dev_ids)
 
 
@@ -30,6 +41,16 @@ def simulate_developer_unavailability(payload: SimulationRequest, db: Session = 
 def simulate_multiple_failure(payload: SimulationRequest, db: Session = Depends(get_db)):
     project = get_project_or_404(db, payload.project_id)
     dev_ids = payload.developer_ids or ([payload.developer_id] if payload.developer_id else [])
+    if dev_ids:
+        valid_devs = {
+            d[0] for d in db.query(Developer.id).filter(Developer.project_id == project.id, Developer.id.in_(dev_ids)).all()
+        }
+        invalid = [d for d in dev_ids if d not in valid_devs]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Developer ID(s) {[str(i) for i in invalid]} do not belong to project {project.id}."
+            )
     return run_simulation(db, project, dev_ids)
 
 

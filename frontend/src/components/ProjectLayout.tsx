@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useParams } from "react-router-dom";
+import { NavLink, Outlet, useParams, Link } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
@@ -6,9 +6,13 @@ import {
   Network,
   FlaskConical,
   ListChecks,
-  MessageSquareText,
+  History,
+  Settings,
+  LogOut,
+  LogIn,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { useAuth } from "@/context/AuthContext";
 
 const NAV_ITEMS = [
   { to: "", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -17,11 +21,13 @@ const NAV_ITEMS = [
   { to: "graph", label: "Knowledge Graph", icon: Network },
   { to: "simulation", label: "Simulation", icon: FlaskConical },
   { to: "recommendations", label: "Recommendations", icon: ListChecks },
-  { to: "ai", label: "AI Analyst", icon: MessageSquareText },
+  { to: "history", label: "History & Diffs", icon: History },
+  { to: "settings", label: "Settings", icon: Settings },
 ];
 
 export default function ProjectLayout() {
   const { projectId } = useParams();
+  const { user, logout } = useAuth();
 
   return (
     <div className="min-h-screen flex">
@@ -47,7 +53,32 @@ export default function ProjectLayout() {
             {label}
           </NavLink>
         ))}
-        <div className="mt-auto px-2 pt-4 space-y-2">
+
+        <div className="mt-auto px-2 pt-4 space-y-3 border-t border-slate-200 dark:border-slate-800">
+          {user ? (
+            <div className="space-y-1">
+              <div className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate" title={user.email}>
+                {user.full_name || user.email}
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                <span className="uppercase">{user.role}</span>
+                <button
+                  onClick={logout}
+                  className="hover:text-risk-critical inline-flex items-center gap-1 transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut size={12} /> Sign out
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-slate-500 flex items-center justify-between">
+              <span>Not signed in</span>
+              <Link to="/login" className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 dark:text-slate-300">
+                <LogIn size={12} /> Sign in
+              </Link>
+            </div>
+          )}
           <ThemeToggle className="w-full justify-center" />
           <NavLink to="/" className="block text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-300">
             &larr; All projects

@@ -6,7 +6,7 @@ language: implement LanguageAnalyzer.parse and register its extensions here.
 # Bump whenever analyzer logic changes in a way that would produce different
 # FileFacts for the same source text. The ingestion cache keys on this, so a
 # bump invalidates all cached per-file analysis on the next run (perf work).
-ANALYZER_VERSION = "2"
+ANALYZER_VERSION = "3"
 from app.analyzers.source.base import FileFacts, LanguageAnalyzer
 from app.analyzers.source.cfamily_analyzer import CFamilyAnalyzer
 from app.analyzers.source.python_analyzer import PythonAnalyzer

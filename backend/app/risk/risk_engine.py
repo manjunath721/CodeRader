@@ -1,5 +1,5 @@
 """
-Risk & resilience engine — implements docs/risk-model.md §1-3.
+Risk & resilience engine — implements Documentation/RISK_MODEL.md §1-3.
 Pure functions operating on already-aggregated per-module facts, so they're
 easy to unit test independently of the database.
 """
@@ -104,7 +104,7 @@ def compute_criticality(
     risk_score: float, dependency_centrality_norm: float, change_frequency_norm: float, loc_share: float,
     threshold: float | None = None,
 ) -> tuple[float, bool]:
-    """docs/risk-model.md §2."""
+    """Documentation/RISK_MODEL.md §2."""
     threshold = threshold if threshold is not None else DEFAULT_RISK_CONFIG["criticality_threshold"]
     structural_importance = 0.5 * dependency_centrality_norm + 0.3 * change_frequency_norm + 0.2 * loc_share
     criticality = round(risk_score * structural_importance, 2)
@@ -121,7 +121,7 @@ class ResilienceInput:
 
 
 def compute_resilience_score(inp: ResilienceInput) -> tuple[float, str, dict]:
-    """docs/risk-model.md §3."""
+    """Documentation/RISK_MODEL.md §3."""
     components = {
         "developer_redundancy": inp.avg_bus_factor_norm,
         "knowledge_distribution": inp.avg_knowledge_distribution,

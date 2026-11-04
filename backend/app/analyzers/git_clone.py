@@ -67,8 +67,8 @@ def validate_repo_url(url: str) -> str:
         if parsed.hostname in ("localhost",):
             raise InvalidGitURLError("Repository URL resolves to a local/private address.")
         ips = _resolve_host_ips(parsed.hostname)
-        if ips and all(_is_private_or_local(ip) for ip in ips):
-            raise InvalidGitURLError("Repository URL resolves to a local/private address.")
+        if not ips or any(_is_private_or_local(ip) for ip in ips):
+            raise InvalidGitURLError("Repository URL resolves to a local/private address or has no DNS records.")
     return url
 
 
@@ -104,7 +104,16 @@ def clone_repository(
 
     validate_repo_url(url)
     dest = tempfile.mkdtemp(prefix="coderesilience_clone_")
-    args = ["git", "clone", "--no-single-branch"]
+    # Hardened git invocation:
+    # 1. core.hooksPath=/dev/null prevents execution of malicious repository hooks
+    # 2. protocol.file.allow=never blocks submodule local file inclusion exploits
+    args = [
+        "git",
+        "-c", "core.hooksPath=/dev/null",
+        "-c", "protocol.file.allow=never",
+        "clone",
+        "--no-single-branch",
+    ]
     if scan_mode == "quick":
         args += ["--depth", str(QUICK_SCAN_CLONE_DEPTH)]
     args += [url, dest]

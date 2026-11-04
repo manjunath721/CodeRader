@@ -34,6 +34,12 @@ class DeveloperNotFoundError(CodeResilienceError):
     message = "Developer not found."
 
 
+class AnalysisRunNotFoundError(CodeResilienceError):
+    code = "ANALYSIS_RUN_NOT_FOUND"
+    status_code = 404
+    message = "Analysis run not found."
+
+
 class NoAnalysisRunError(CodeResilienceError):
     code = "NO_ANALYSIS_RUN"
     status_code = 404
@@ -232,3 +238,78 @@ def build_recommendations(db: Session, project: Project) -> list:
     if not run:
         return []
     return db.query(Recommendation).filter(Recommendation.analysis_run_id == run.id).all()
+
+
+def compare_analysis_runs(db: Session, project: Project, base_run_id: uuid.UUID, target_run_id: uuid.UUID) -> dict:
+    base_run = db.get(AnalysisRun, base_run_id)
+    target_run = db.get(AnalysisRun, target_run_id)
+    if not base_run or base_run.project_id != project.id:
+        raise AnalysisRunNotFoundError("Base analysis run not found.")
+    if not target_run or target_run.project_id != project.id:
+        raise AnalysisRunNotFoundError("Target analysis run not found.")
+
+    base_res = db.query(ResilienceScore).filter(ResilienceScore.analysis_run_id == base_run_id).first()
+    target_res = db.query(ResilienceScore).filter(ResilienceScore.analysis_run_id == target_run_id).first()
+
+    base_score = base_res.score if base_res else None
+    target_score = target_res.score if target_res else None
+    res_delta = round((target_score - base_score), 2) if (target_score is not None and base_score is not None) else 0.0
+
+    modules = {m.id: m.name for m in db.query(Module).filter(Module.repository_id.in_(_module_repo_ids(db, project.id))).all()}
+    base_risks = {r.module_id: r for r in db.query(RiskScore).filter(RiskScore.analysis_run_id == base_run_id).all()}
+    target_risks = {r.module_id: r for r in db.query(RiskScore).filter(RiskScore.analysis_run_id == target_run_id).all()}
+
+    all_mod_ids = set(base_risks.keys()) | set(target_risks.keys())
+    modules_added = [modules.get(mid, str(mid)) for mid in target_risks if mid not in base_risks]
+    modules_removed = [modules.get(mid, str(mid)) for mid in base_risks if mid not in target_risks]
+
+    risk_changes = []
+    newly_introduced = []
+    resolved = []
+
+    for mid in all_mod_ids:
+        b_risk = base_risks.get(mid)
+        t_risk = target_risks.get(mid)
+        mname = modules.get(mid, str(mid))
+
+        old_s = b_risk.score if b_risk else None
+        new_s = t_risk.score if t_risk else None
+        delta = round(new_s - old_s, 2) if (new_s is not None and old_s is not None) else 0.0
+
+        old_lvl = b_risk.level if b_risk else None
+        new_lvl = t_risk.level if t_risk else None
+
+        if old_s is not None or new_s is not None:
+            risk_changes.append({
+                "module_id": str(mid),
+                "name": mname,
+                "old_score": old_s,
+                "new_score": new_s,
+                "delta": delta,
+                "old_level": old_lvl,
+                "new_level": new_lvl,
+            })
+
+        if (not old_lvl or old_lvl in ("LOW", "MODERATE")) and new_lvl in ("HIGH", "CRITICAL"):
+            newly_introduced.append(mname)
+        elif old_lvl in ("HIGH", "CRITICAL") and new_lvl in ("LOW", "MODERATE"):
+            resolved.append(mname)
+
+    risk_changes.sort(key=lambda x: abs(x["delta"]), reverse=True)
+
+    return {
+        "base_run_id": base_run.id,
+        "target_run_id": target_run.id,
+        "base_commit_sha": base_run.commit_sha,
+        "target_commit_sha": target_run.commit_sha,
+        "resilience_before": base_score,
+        "resilience_after": target_score,
+        "resilience_delta": res_delta,
+        "label_before": base_res.label if base_res else None,
+        "label_after": target_res.label if target_res else None,
+        "modules_added": modules_added,
+        "modules_removed": modules_removed,
+        "risk_changes": risk_changes,
+        "newly_introduced_risks": newly_introduced,
+        "resolved_risks": resolved,
+    }

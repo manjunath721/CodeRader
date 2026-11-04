@@ -25,6 +25,7 @@ IMPORT_TARGET_PATTERNS = [
     re.compile(r"""\bimport\s+.*?\bfrom\s+['"]([^'"]+)['"]"""),   # JS/TS: import x from 'y'
     re.compile(r"""\brequire\(\s*['"]([^'"]+)['"]\s*\)"""),        # JS: require('y')
     re.compile(r"""^\s*import\s+['"]([^'"]+)['"]""", re.MULTILINE),  # JS: bare `import 'y'`
+    re.compile(r"""^\s*import\s+(?:static\s+)?([\w.]+);""", re.MULTILINE),  # Java: import a.b.c;
     re.compile(r"""#include\s*["<]([^">]+)[">]"""),                # C/C++
     re.compile(r"""^\s*import\s+\(?\s*["']?([\w./]+)["']?""", re.MULTILINE),  # Go
 ]

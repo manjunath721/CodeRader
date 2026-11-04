@@ -2,7 +2,7 @@
 Full analysis pipeline orchestration (architecture.md §3, stages 1-17) —
 perf-hardened version.
 
-Changed from the original design (see docs/perf-benchmarks.md for the
+Changed from the original design (see Documentation/PERFORMANCE_BENCHMARKS.md for the
 measurements behind these decisions):
 
 - No longer wipes and fully re-ingests a repository on every run
@@ -28,6 +28,7 @@ measurements behind these decisions):
   (see query_service.get_latest_complete_run), so a cancelled or failed
   run's partial writes are simply never published, by construction.
 """
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
@@ -81,6 +82,12 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
         db.add(run)
         db.commit()
 
+    risk_cfg = project.risk_config or {}
+    previous_checkpoints = {
+        r.id: (r.last_indexed_commit_sha, r.last_indexed_branch, r.last_analyzed_at, r.scan_mode)
+        for r in db.query(Repository).filter(Repository.project_id == project.id).all()
+    }
+
     try:
         # --- Stages 1-9: incremental ingestion (per repository) ---
         ingestion_summary: dict[str, dict] = {}
@@ -116,9 +123,13 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
         mark("knowledge_scoring")
 
         # --- Stage: knowledge scores per module ---
+        knowledge_weights = risk_cfg.get("knowledge_weights")
+        half_life_days = risk_cfg.get("recency_half_life_days")
         knowledge_by_module: dict[str, dict[str, float]] = {}
         for mod_id, dev_activities in activity.items():
-            results = compute_module_knowledge_scores(mod_id, dev_activities, now=now)
+            results = compute_module_knowledge_scores(
+                mod_id, dev_activities, now=now, weights=knowledge_weights, half_life_days=half_life_days,
+            )
             knowledge_by_module[mod_id] = {r.developer_id: r.score for r in results}
             for r in results:
                 db.add(
@@ -156,17 +167,24 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
                 if authored_at >= ninety_days_ago:
                     change_freq_90d[mod_id] += 1
 
-        # --- Stage: module facts (docs, complexity) from Files ---
+        # --- Stage: module facts (docs, complexity, LOC) from Files ---
         module_doc_score: dict[str, float] = {}
         module_complexity: dict[str, float] = {}
+        module_loc: dict[str, int] = {}
         for m in modules:
             files = db.query(FileModel).filter(FileModel.module_id == m.id).all()
             if files:
                 module_doc_score[str(m.id)] = sum(f.doc_coverage_pct for f in files) / len(files) / 100
                 module_complexity[str(m.id)] = sum(f.complexity for f in files) / len(files)
+                m.loc = sum(
+                    f.lines_of_code if getattr(f, "lines_of_code", 0) > 0 else max(f.size_bytes // 35, 1)
+                    for f in files
+                )
             else:
                 module_doc_score[str(m.id)] = 0.0
                 module_complexity[str(m.id)] = 0.0
+                m.loc = 0
+            module_loc[str(m.id)] = m.loc
             m.documentation_score = module_doc_score[str(m.id)]
             m.complexity_avg = module_complexity[str(m.id)]
             m.change_frequency_90d = change_freq_90d.get(str(m.id), 0)
@@ -202,19 +220,24 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
                     dependency_centrality=float(centrality.get(mid, 0)),
                 )
             )
-        risk_results = compute_module_risks(risk_inputs)
+        risk_weights = risk_cfg.get("risk_weights")
+        risk_results = compute_module_risks(risk_inputs, weights=risk_weights)
         centrality_norm = {}
         if centrality:
             max_c = max(centrality.values()) or 1
             centrality_norm = {k: v / max_c for k, v in centrality.items()}
         max_change = max(change_freq_90d.values(), default=0) or 1
 
+        total_loc = sum(module_loc.values()) or 1
+        criticality_threshold = risk_cfg.get("criticality_threshold")
         risk_rows_by_module = {}
         for rr in risk_results:
             centrality_n = centrality_norm.get(rr.module_id, 0.0)
             change_n = change_freq_90d.get(rr.module_id, 0) / max_change
-            loc_share = 0.0  # LOC not populated by current ingestion (file count used instead as proxy)
-            criticality, is_critical = compute_criticality(rr.score, centrality_n, change_n, loc_share)
+            loc_share = module_loc.get(rr.module_id, 0) / total_loc
+            criticality, is_critical = compute_criticality(
+                rr.score, centrality_n, change_n, loc_share, threshold=criticality_threshold
+            )
             row = RiskScore(
                 analysis_run_id=run.id, module_id=rr.module_id, score=rr.score, level=rr.level,
                 factors=rr.factors, criticality_score=criticality, is_critical_knowledge_area=is_critical,
@@ -293,6 +316,10 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
                 "module_id": rr.module_id, "name": module_meta[rr.module_id]["name"], "score": rr.score,
                 "level": rr.level, "bus_factor": module_meta[rr.module_id]["bus_factor"],
                 "documentation_score": module_doc_score.get(rr.module_id, 0.0),
+                "concentration_pct": module_meta[rr.module_id]["concentration"],
+                "complexity_avg": module_complexity.get(rr.module_id, 0.0),
+                "change_frequency_90d": change_freq_90d.get(rr.module_id, 0),
+                "dependency_centrality": float(centrality.get(rr.module_id, 0)),
             }
             for rr in risk_results
         ]
@@ -312,6 +339,10 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
             )
         db.commit()
 
+        for repo in db.query(Repository).filter(Repository.project_id == project.id):
+            if repo.last_indexed_commit_sha and not run.commit_sha:
+                run.commit_sha = repo.last_indexed_commit_sha
+
         run.status = "complete"
         run.completed_at = datetime.now(timezone.utc)
         db.add(run)
@@ -320,6 +351,15 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
         return run
 
     except AnalysisCancelledError:
+        # Restore repository checkpoints so a cancelled run doesn't advance checkpoint
+        for repo_id, (prev_sha, prev_br, prev_at, prev_mode) in previous_checkpoints.items():
+            repo = db.get(Repository, repo_id)
+            if repo:
+                repo.last_indexed_commit_sha = prev_sha
+                repo.last_indexed_branch = prev_br
+                repo.last_analyzed_at = prev_at
+                repo.scan_mode = prev_mode
+                db.add(repo)
         run.status = "cancelled"
         run.completed_at = datetime.now(timezone.utc)
         db.add(run)
@@ -327,9 +367,21 @@ def run_analysis(db: Session, project: Project, run: AnalysisRun | None = None) 
         db.refresh(run)
         return run
 
-    except Exception as exc:  # noqa: BLE001 - convert to a stored, user-facing failure (§43)
+    except Exception:  # noqa: BLE001 - record safe public failure and preserve diagnostics in server logs
+        logging.getLogger(__name__).exception(
+            "Analysis run failed", extra={"analysis_run_id": str(run.id), "project_id": str(project.id)}
+        )
+        # Restore repository checkpoints so a failed run never advances the checkpoint
+        for repo_id, (prev_sha, prev_br, prev_at, prev_mode) in previous_checkpoints.items():
+            repo = db.get(Repository, repo_id)
+            if repo:
+                repo.last_indexed_commit_sha = prev_sha
+                repo.last_indexed_branch = prev_br
+                repo.last_analyzed_at = prev_at
+                repo.scan_mode = prev_mode
+                db.add(repo)
         run.status = "failed"
-        run.error_message = str(exc)
+        run.error_message = "Analysis failed. Please retry or contact support."
         run.completed_at = datetime.now(timezone.utc)
         db.add(run)
         db.commit()

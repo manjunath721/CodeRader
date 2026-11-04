@@ -56,5 +56,5 @@ non-demo projects — so the demo workspace is always one click away.
    ranked with `Priya` surfaced with compatibility score and *why*.
 5. Recommendations page → CRITICAL: assign secondary owner to `payment`;
    HIGH: document `deployment`.
-6. AI Analyst → ask "Why is Payment the highest-risk module?" → answer cites
-   the exact stored metrics, not invented figures.
+6. Recommendations page → click "Knowledge Transfer Plan" → select `payment` → Generate structured 6-point curriculum with topics, recommended backup maintainer, and copy to clipboard.
+7. History page → compare historical analysis runs to observe resilience deltas and newly introduced or resolved risks.

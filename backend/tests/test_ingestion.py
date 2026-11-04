@@ -1,6 +1,8 @@
+from pathlib import Path
+
 from app.models.activity import Commit
 from app.models.code import File as FileModel
-from app.models.code import Module
+from app.models.code import Module, ModuleDependency
 from app.models.developer import Developer
 from app.models.project import Project, Repository
 from app.services.ingestion_service import ingest_repository
@@ -31,6 +33,7 @@ def test_ingest_repository_extracts_developers_modules_files_commits(db_session,
 
     assert db_session.query(Commit).count() == 13
     assert db_session.query(FileModel).count() == 2
+    assert repo_row.commit_count == db_session.query(Commit).count()
 
 
 def test_second_run_with_no_new_commits_is_a_fast_noop(db_session, synthetic_repo):
@@ -119,3 +122,59 @@ def test_ingestion_is_idempotent_and_safe_to_retry(db_session, synthetic_repo):
     assert retry["commits_inserted"] == 0  # all 13 already present
     assert retry["commits_already_present"] == 13
     assert db_session.query(Commit).count() == 13  # no duplicates
+
+
+def test_full_scan_backfills_history_omitted_by_quick_scan(db_session, synthetic_repo, monkeypatch):
+    monkeypatch.setattr("app.services.ingestion_service.QUICK_SCAN_MAX_COMMITS", 5)
+    project = Project(name="Quick-to-full")
+    db_session.add(project)
+    db_session.flush()
+    repo_row = Repository(project_id=project.id, url=synthetic_repo, provider="local")
+    db_session.add(repo_row)
+    db_session.flush()
+
+    quick = ingest_repository(db_session, repo_row, synthetic_repo, is_local=True, scan_mode="quick")
+    assert quick["commits_inserted"] == 5
+    assert db_session.query(Commit).count() == 5
+
+    full = ingest_repository(db_session, repo_row, synthetic_repo, is_local=True, scan_mode="full")
+
+    assert full["incremental"] is False
+    assert full["commits_fetched"] == 13
+    assert full["commits_inserted"] == 8
+    assert db_session.query(Commit).count() == 13
+    assert repo_row.scan_mode == "full"
+
+
+def test_deleted_import_removes_only_stale_generated_dependency_edges(db_session, synthetic_repo):
+    payment_file = Path(synthetic_repo) / "src/payment/charge.py"
+    payment_file.write_text("import src.auth.login\n\ndef charge():\n    return True\n", encoding="utf-8")
+
+    project = Project(name="Dependency reconciliation")
+    db_session.add(project)
+    db_session.flush()
+    repo_row = Repository(project_id=project.id, url=synthetic_repo, provider="local")
+    db_session.add(repo_row)
+    db_session.flush()
+
+    ingest_repository(db_session, repo_row, synthetic_repo, is_local=True)
+    modules = {module.path_prefix: module for module in db_session.query(Module).all()}
+    assert db_session.query(ModuleDependency).filter_by(source="import").count() == 1
+
+    db_session.add(
+        ModuleDependency(
+            module_id=modules["src/auth"].id,
+            depends_on_module_id=modules["src/payment"].id,
+            source="manual",
+            weight=1.0,
+        )
+    )
+    db_session.commit()
+    payment_file.write_text("def charge():\n    return True\n", encoding="utf-8")
+
+    ingest_repository(db_session, repo_row, synthetic_repo, is_local=True)
+
+    edges = db_session.query(ModuleDependency).all()
+    assert [(edge.source, edge.module_id, edge.depends_on_module_id) for edge in edges] == [
+        ("manual", modules["src/auth"].id, modules["src/payment"].id)
+    ]

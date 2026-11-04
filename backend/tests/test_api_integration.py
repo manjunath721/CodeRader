@@ -122,16 +122,11 @@ def test_full_api_flow(synthetic_repo):
     sim = r.json()
     assert sim["resilience_after"] < sim["resilience_before"]
 
-    # Recommendations
+    # Recommendations (deterministic, rule-based)
     r = client.get(f"/api/projects/{project['id']}/recommendations")
     assert r.status_code == 200
-
-    # AI analyst — grounded answer about the payment module
-    r = client.post("/api/ai/query", json={"project_id": project["id"], "question": "Why is payment risky?"})
-    assert r.status_code == 200
-    ai_resp = r.json()
-    assert "payment" in ai_resp["answer"].lower()
-    assert ai_resp["context"]["type"] == "module_risk"
+    recs = r.json()
+    assert isinstance(recs, list)
 
     # Cosmos layers — real per-file inventory + derived external libraries
     r = client.get(f"/api/projects/{project['id']}/files")

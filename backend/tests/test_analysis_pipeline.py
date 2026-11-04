@@ -1,4 +1,6 @@
-from app.models.analysis import ResilienceScore, RiskScore
+import pytest
+
+from app.models.analysis import AnalysisRun, ResilienceScore, RiskScore
 from app.models.code import Module
 from app.models.project import Project, Repository
 from app.models.simulation import Recommendation
@@ -32,3 +34,24 @@ def test_full_pipeline_runs_and_scores_concentrated_module_higher(db_session, sy
 
     recommendations = db_session.query(Recommendation).filter_by(project_id=project.id).all()
     assert isinstance(recommendations, list)  # may be empty depending on thresholds, but must not error
+
+
+def test_failed_analysis_does_not_persist_exception_details(db_session, monkeypatch):
+    project = Project(name="Failure case")
+    db_session.add(project)
+    db_session.flush()
+    db_session.add(Repository(project_id=project.id, url="/repo", provider="local"))
+    db_session.commit()
+
+    def fail_with_sensitive_details(*_args, **_kwargs):
+        raise RuntimeError("database password at C:/private/secrets.env")
+
+    monkeypatch.setattr("app.services.analysis_pipeline.ingest_repository", fail_with_sensitive_details)
+
+    with pytest.raises(RuntimeError):
+        run_analysis(db_session, project)
+
+    failed_run = db_session.query(AnalysisRun).one()
+    assert failed_run.status == "failed"
+    assert failed_run.error_message == "Analysis failed. Please retry or contact support."
+    assert "private/secrets.env" not in failed_run.error_message

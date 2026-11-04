@@ -3,7 +3,7 @@ Repository ingestion service (master spec §6, §7; architecture.md §3
 stages 1-9) — perf-hardened version.
 
 Key differences from the original wipe-and-recreate design, all measured or
-reasoned about in docs/perf-benchmarks.md:
+reasoned about in Documentation/PERFORMANCE_BENCHMARKS.md:
 
 - Commit history is fetched via a single batched `git log --numstat` CLI
   call (app.analyzers.git_history) instead of per-commit GitPython
@@ -163,12 +163,17 @@ def ingest_repository(
 
         can_resume = (
             not force_full_rescan
+            and not (scan_mode == "full" and repo_row.scan_mode == "quick")
             and repo_row.last_indexed_commit_sha is not None
             and repo_row.last_indexed_branch == current_branch
             and commit_exists(clone_path, repo_row.last_indexed_commit_sha)
         )
         since_sha = repo_row.last_indexed_commit_sha if can_resume else None
-        max_commits = QUICK_SCAN_MAX_COMMITS if (scan_mode == "quick" and not can_resume) else None
+        if scan_mode == "quick" and not can_resume:
+            max_commits = QUICK_SCAN_MAX_COMMITS
+        else:
+            from app.core.config import get_settings
+            max_commits = get_settings().MAX_COMMITS_PER_RUN
 
         commit_records = extract_commit_history(clone_path, since_commit_sha=since_sha, max_commits=max_commits)
         if not commit_records and not can_resume:
@@ -241,6 +246,7 @@ def ingest_repository(
                 existing.is_config = facts.is_config if facts else False
                 existing.complexity = facts.cyclomatic_complexity if facts else 0.0
                 existing.doc_coverage_pct = facts.doc_coverage_pct if facts else 0.0
+                existing.lines_of_code = facts.code_lines if facts else 0
                 existing.content_hash = content_hash
                 existing.analyzer_version = ANALYZER_VERSION
                 existing.import_targets = import_targets
@@ -253,6 +259,7 @@ def ingest_repository(
                         is_test=facts.is_test if facts else False, is_config=facts.is_config if facts else False,
                         complexity=facts.cyclomatic_complexity if facts else 0.0,
                         doc_coverage_pct=facts.doc_coverage_pct if facts else 0.0,
+                        lines_of_code=facts.code_lines if facts else 0,
                         content_hash=content_hash, analyzer_version=ANALYZER_VERSION, import_targets=import_targets,
                     )
                 )
@@ -265,23 +272,42 @@ def ingest_repository(
                 db.delete(row)
         db.flush()
 
+        # Prune obsolete empty modules whose files were completely removed
+        remaining_mod_ids = {
+            f.module_id for f in db.query(FileModel.module_id).filter(FileModel.repository_id == repo_row.id).all()
+            if f.module_id
+        }
+        for prefix, mod in list(module_rows.items()):
+            if mod.id not in remaining_mod_ids and prefix not in module_prefixes:
+                db.query(ModuleDependency).filter(
+                    (ModuleDependency.module_id == mod.id) | (ModuleDependency.depends_on_module_id == mod.id)
+                ).delete(synchronize_session=False)
+                db.delete(mod)
+                del module_rows[prefix]
+        db.flush()
+
         # --- Module dependency auto-extraction from captured imports ---
         edges = resolve_module_dependencies(module_prefixes, file_import_data)
         existing_edges = {
             (e.module_id, e.depends_on_module_id): e
             for e in db.query(ModuleDependency).filter(ModuleDependency.module_id.in_([m.id for m in module_rows.values()]))
         }
+        expected_edge_keys = set()
         for edge in edges:
             src = module_rows.get(edge.from_module_prefix)
             dst = module_rows.get(edge.to_module_prefix)
             if not src or not dst:
                 continue
             key = (src.id, dst.id)
+            expected_edge_keys.add(key)
             if key in existing_edges:
                 existing_edges[key].weight = edge.weight
                 db.add(existing_edges[key])
             else:
                 db.add(ModuleDependency(module_id=src.id, depends_on_module_id=dst.id, weight=edge.weight, source="import"))
+        for key, existing_edge in existing_edges.items():
+            if existing_edge.source == "import" and key not in expected_edge_keys:
+                db.delete(existing_edge)
         db.flush()
 
         # --- New commits: bulk insert, idempotent-retry-safe ---
@@ -369,7 +395,7 @@ def ingest_repository(
         # --- Update repository summary + incremental-indexing checkpoint ---
         repo_row.total_files = len(seen_paths)
         repo_row.contributor_count = db.query(Developer).filter(Developer.project_id == repo_row.project_id).count()
-        repo_row.commit_count = db.query(Commit).filter(Commit.repository_id == repo_row.id).count() + inserted_count
+        repo_row.commit_count = db.query(Commit).filter(Commit.repository_id == repo_row.id).count()
         repo_row.last_analyzed_at = datetime.now(timezone.utc).isoformat()
         repo_row.last_indexed_commit_sha = head_sha
         repo_row.last_indexed_branch = current_branch

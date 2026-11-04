@@ -18,17 +18,14 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
+    SECRET_KEY: str = "coderadar-secret-key-change-in-production-2026"
+    ALLOW_ANONYMOUS_READS: bool = True
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://coderesilience:coderesilience@localhost:5432/coderesilience"
 
     # GitHub
     GITHUB_TOKEN: str | None = None
-
-    # LLM provider abstraction (see app/ai/provider.py)
-    LLM_PROVIDER: str = "none"  # "none" | "anthropic" | "openai" | ...
-    LLM_API_KEY: str | None = None
-    LLM_MODEL: str | None = None
 
     # Repository ingestion safety limits (§35, perf-hardening pass)
     CLONE_TIMEOUT_SECONDS: int = 300

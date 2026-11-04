@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "@/services/api";
 import type { AnalysisRun, DashboardData } from "@/types/api";
 import RiskBadge from "@/components/RiskBadge";
-import { CheckCircle2, CircleDashed, PlayCircle, RefreshCw, XCircle, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleDashed,
+  PlayCircle,
+  RefreshCw,
+  XCircle,
+  Trash2,
+  GitCommit,
+  Download,
+  History,
+  AlertTriangle,
+} from "lucide-react";
 
 const STAGE_LABELS: Record<string, string> = {
   repository_ingestion: "Repository ingestion",
@@ -27,25 +38,44 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [scanMode, setScanMode] = useState<"quick" | "full">("full");
+  const [rescanMode, setRescanMode] = useState<"incremental" | "quick" | "full">("incremental");
   const [activeRun, setActiveRun] = useState<AnalysisRun | null>(null);
+  const [latestRun, setLatestRun] = useState<AnalysisRun | null>(null);
+  const [showFullConfirm, setShowFullConfirm] = useState(false);
   const cancelledRef = useRef(false);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
     if (!projectId) return;
-    api.getDashboard(projectId).then(setData).catch((e) => setError(String(e)));
+    api
+      .getDashboard(projectId)
+      .then(setData)
+      .catch((e) => setError(String(e)));
+
+    api
+      .listAnalysisRuns(projectId)
+      .then((runs) => {
+        if (runs.length > 0) {
+          setLatestRun(runs[0]);
+        }
+      })
+      .catch(() => {});
   }, [projectId]);
 
   useEffect(load, [load]);
 
-  async function handleAnalyze() {
+  async function triggerAnalysis(mode: "incremental" | "quick" | "full") {
     if (!projectId) return;
     setAnalyzing(true);
     setError(null);
     cancelledRef.current = false;
+    setShowFullConfirm(false);
+
+    const scanMode = mode === "quick" ? "quick" : "full";
+    const forceFull = mode === "full";
+
     try {
-      const run = await api.startAnalysis(projectId, scanMode);
+      const run = await api.startAnalysis(projectId, scanMode, "manual", forceFull);
       setActiveRun(run);
       let current = run;
       while (current.status === "pending" || current.status === "running") {
@@ -64,6 +94,14 @@ export default function DashboardPage() {
     }
   }
 
+  function handleStartScan() {
+    if (rescanMode === "full" && data?.last_analysis_run_id) {
+      setShowFullConfirm(true);
+    } else {
+      triggerAnalysis(rescanMode);
+    }
+  }
+
   async function handleCancel() {
     if (!projectId || !activeRun) return;
     cancelledRef.current = true;
@@ -72,7 +110,12 @@ export default function DashboardPage() {
 
   async function handleDelete() {
     if (!projectId || !data) return;
-    if (!window.confirm(`Delete project "${data.project_name}" and all of its analysis data? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Delete project "${data.project_name}" and all of its analysis data? This cannot be undone.`,
+      )
+    )
+      return;
     try {
       await api.deleteProject(projectId);
       navigate("/");
@@ -81,30 +124,85 @@ export default function DashboardPage() {
     }
   }
 
+  function handleExport(format: "json" | "csv") {
+    if (!projectId || !data?.last_analysis_run_id) return;
+    const url = api.getExportUrl(projectId, data.last_analysis_run_id, format);
+    window.open(url, "_blank");
+  }
+
   if (error) return <div className="text-risk-critical text-sm">{error}</div>;
   if (!data) return <div className="text-slate-500 text-sm">Loading…</div>;
 
   const total = Object.values(data.risk_distribution).reduce((a, b) => a + b, 0);
+  const displayRun = activeRun || latestRun;
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">{data.project_name}</h1>
-          {data.is_demo && <div className="text-xs text-slate-500">Demo data (synthetic)</div>}
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold">{data.project_name}</h1>
+            {data.is_demo && (
+              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded dark:bg-slate-800 dark:text-slate-300">
+                Demo data
+              </span>
+            )}
+          </div>
+          {displayRun?.commit_sha && (
+            <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 font-mono">
+              <GitCommit size={14} />
+              <span>Commit {displayRun.commit_sha.slice(0, 8)}</span>
+              {displayRun.rescan_type && (
+                <span className="text-[10px] uppercase font-sans tracking-wide bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                  {displayRun.rescan_type}
+                </span>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {!analyzing && data.last_analysis_run_id && (
+            <>
+              <button
+                onClick={() => handleExport("json")}
+                title="Export analysis data as JSON"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                <Download size={14} /> JSON
+              </button>
+              <button
+                onClick={() => handleExport("csv")}
+                title="Export module metrics as CSV"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                <Download size={14} /> CSV
+              </button>
+              <Link
+                to={`/projects/${projectId}/history`}
+                title="View scan history and run diffs"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                <History size={14} /> History
+              </Link>
+            </>
+          )}
+
           {!analyzing && (
             <select
-              value={scanMode}
-              onChange={(e) => setScanMode(e.target.value as "quick" | "full")}
+              value={rescanMode}
+              onChange={(e) => setRescanMode(e.target.value as "incremental" | "quick" | "full")}
               className="rounded-lg bg-slate-100 border border-slate-200 px-2 py-2 text-xs dark:bg-slate-900 dark:border-slate-800"
-              title="Quick Scan: bounded-depth, fast first look. Full Historical Scan: complete history."
+              title="Select analysis mode"
             >
-              <option value="full">Full Historical Scan</option>
-              <option value="quick">Quick Scan</option>
+              <option value="incremental">Incremental Rescan (New Commits)</option>
+              <option value="quick">Quick Scan (Bounded Depth)</option>
+              <option value="full">Full Historical Rescan</option>
             </select>
           )}
+
           {analyzing ? (
             <button
               onClick={handleCancel}
@@ -115,14 +213,20 @@ export default function DashboardPage() {
               {cancelledRef.current ? "Cancelling…" : "Cancel"}
             </button>
           ) : null}
+
           <button
-            onClick={handleAnalyze}
+            onClick={handleStartScan}
             disabled={analyzing}
             className="inline-flex items-center gap-2 rounded-lg bg-slate-900 text-white px-4 py-2 text-sm font-medium hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
           >
             {analyzing ? <RefreshCw size={16} className="animate-spin" /> : <PlayCircle size={16} />}
-            {analyzing ? "Analyzing…" : data.last_analysis_run_id ? "Re-run analysis" : "Run analysis"}
+            {analyzing
+              ? "Analyzing…"
+              : data.last_analysis_run_id
+                ? "Rescan Repository"
+                : "Run Analysis"}
           </button>
+
           {!analyzing && (
             <button
               onClick={handleDelete}
@@ -136,11 +240,45 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Confirmation Modal for Full Rescan */}
+      {showFullConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-w-md w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900 space-y-4">
+            <div className="flex items-center gap-3 text-risk-high">
+              <AlertTriangle size={24} />
+              <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">
+                Confirm Full Rescan
+              </h3>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              A full rescan resets previous commit checkpoints and re-indexes the entire repository Git history
+              from scratch. This operation may take longer for repositories with extensive commit histories.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowFullConfirm(false)}
+                className="px-4 py-2 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => triggerAnalysis("full")}
+                className="px-4 py-2 text-sm rounded-lg bg-risk-critical text-white font-medium hover:bg-risk-critical/90"
+              >
+                Proceed with Full Rescan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Run Status & Progress */}
       {analyzing && activeRun && (
         <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3 shadow-sm dark:border-slate-800 dark:bg-transparent dark:shadow-none">
           <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            {activeRun.status === "pending" ? "Starting…" : "Running analysis"}
+            {activeRun.status === "pending" ? "Starting analysis worker…" : "Running analysis"}
             {activeRun.scan_mode === "quick" && <span className="text-slate-500"> (Quick Scan)</span>}
+            {activeRun.scan_mode === "full" && <span className="text-slate-500"> (Full Scan)</span>}
           </div>
           <div className="space-y-1.5">
             {STAGE_ORDER.map((stage) => {
@@ -152,7 +290,13 @@ export default function DashboardPage() {
                   ) : (
                     <CircleDashed size={14} className="text-slate-600" />
                   )}
-                  <span className={stageStatus === "complete" ? "text-slate-700 dark:text-slate-300" : "text-slate-400 dark:text-slate-600"}>
+                  <span
+                    className={
+                      stageStatus === "complete"
+                        ? "text-slate-700 dark:text-slate-300"
+                        : "text-slate-400 dark:text-slate-600"
+                    }
+                  >
                     {STAGE_LABELS[stage]}
                   </span>
                 </div>
@@ -161,7 +305,10 @@ export default function DashboardPage() {
           </div>
           {activeRun.progress?.ingestion &&
             Object.values(activeRun.progress.ingestion).map((p, i) => (
-              <div key={i} className="text-xs text-slate-500 border-t border-slate-200 pt-2 dark:border-slate-800">
+              <div
+                key={i}
+                className="text-xs text-slate-500 border-t border-slate-200 pt-2 dark:border-slate-800"
+              >
                 {p.incremental ? "Incremental scan — " : "Full scan — "}
                 {p.commits_inserted} new commit{p.commits_inserted === 1 ? "" : "s"} ingested
                 {p.commits_already_present > 0 && ` (${p.commits_already_present} already indexed)`},{" "}
@@ -173,16 +320,18 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Unanalyzed Project Notice */}
       {!data.last_analysis_run_id && !analyzing && (
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-transparent dark:text-slate-400 dark:shadow-none">
-          This project hasn't been analyzed yet. Click "Run analysis" to ingest the repository and compute
+          This project hasn't been analyzed yet. Select a scan mode and click "Run Analysis" to ingest the repository and compute
           knowledge, risk, and resilience metrics.
         </div>
       )}
 
+      {/* Dashboard Metrics */}
       {data.last_analysis_run_id && (
         <>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-transparent dark:shadow-none">
               <div className="text-xs text-slate-500 mb-1">Project Resilience</div>
               <div className={`text-4xl font-semibold ${LABEL_COLOR[data.resilience_label ?? ""] ?? ""}`}>
@@ -202,12 +351,17 @@ export default function DashboardPage() {
           </div>
 
           <div>
-            <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Risk distribution</div>
+            <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              Risk distribution
+            </div>
             <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-900">
               {(["LOW", "MODERATE", "HIGH", "CRITICAL"] as const).map((level) => {
                 const pct = total ? (data.risk_distribution[level] / total) * 100 : 0;
                 const colorClass = {
-                  LOW: "bg-risk-low", MODERATE: "bg-risk-moderate", HIGH: "bg-risk-high", CRITICAL: "bg-risk-critical",
+                  LOW: "bg-risk-low",
+                  MODERATE: "bg-risk-moderate",
+                  HIGH: "bg-risk-high",
+                  CRITICAL: "bg-risk-critical",
                 }[level];
                 return pct ? <div key={level} className={colorClass} style={{ width: `${pct}%` }} /> : null;
               })}
@@ -222,7 +376,9 @@ export default function DashboardPage() {
           </div>
 
           <div>
-            <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Top risk modules</div>
+            <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              Top risk modules
+            </div>
             <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-200 shadow-sm dark:border-slate-800 dark:bg-transparent dark:divide-slate-800 dark:shadow-none">
               {data.top_risk_modules.map((m) => (
                 <button
@@ -246,7 +402,9 @@ export default function DashboardPage() {
 
           {data.critical_knowledge_areas.length > 0 && (
             <div>
-              <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Critical knowledge areas</div>
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Critical knowledge areas
+              </div>
               <div className="flex flex-wrap gap-2">
                 {data.critical_knowledge_areas.map((m) => (
                   <button

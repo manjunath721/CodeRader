@@ -34,6 +34,8 @@ class AnalysisRun(Base, UUIDMixin, TimestampMixin):
     # by the pipeline as real work completes.
     progress: Mapped[dict] = mapped_column(JSON, default=dict)
     scan_mode: Mapped[str] = mapped_column(String(20), default="full")  # "quick" | "full"
+    rescan_type: Mapped[str] = mapped_column(String(30), default="full")  # "full" | "incremental" | "quick"
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(default=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

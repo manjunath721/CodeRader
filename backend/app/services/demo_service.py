@@ -1,5 +1,5 @@
 """
-Synthetic demo workspace builder (docs/demo.md).
+Synthetic demo workspace builder (Documentation/DEMO_GUIDE.md).
 
 Builds a real local Git repository with deliberately engineered properties,
 then runs it through the real ingestion + analysis pipeline (the same code
